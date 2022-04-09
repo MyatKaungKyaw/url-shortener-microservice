@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const mongoose=require('mongoose');
 const app = express();
 let original_url;
 
@@ -13,6 +14,8 @@ app.use(cors());
 app.use('/public', express.static(`${process.cwd()}/public`));
 
 app.use(bodyParser.urlencoded({extended:false}));
+
+app.use(process.env.MONGO_URI,{useNewUrlParser : true, useUnifiedTopology : true});
 
 app.get('/', function(req, res) {
   res.sendFile(process.cwd() + '/views/index.html');
@@ -28,6 +31,31 @@ const logPath = (req,res,next) => {
   next();
 }
 
+const shortUrlSchema = new mongoose.Schema({
+  originalUrl : String,
+  shortUrl : Number,
+});
+
+const lastShortUrlSchema = new mongoose.Schema({
+  shortUrl : Number,
+});
+
+const shortUrl = new mongoose.model('shortUrl',shortUrlSchema);
+const lastShortUrl = new mongoose.model('lastShortUrl',lastShortUrlSchema);
+
+//test insert
+const insert = async (req,res) => {
+  try{
+    const google = new shortUrl({originalUrl : 'https://www.google.com/', shortUrl : 1});
+    const lastUrl = new lastShortUrl({shortUrl : 1});
+  }
+  catch(err) {
+
+  }
+};
+app.post('/api/insert',logPath,(req,res) => {
+  
+});
 
 app.post('/api/shorturl',logPath,(req,res) => {
   const fullUrl = req.body.url;
@@ -39,14 +67,11 @@ app.post('/api/shorturl',logPath,(req,res) => {
 });
 
 app.get('/api/shorturl/:short_url',logPath,(req,res) => {
-
-
   if(req.params.short_url == urlHolder.short_url){
     res.redirect(urlHolder.original_url);
   }else{
     res.json({});
   }
-  
 }); 
 
 function validURL(str) {

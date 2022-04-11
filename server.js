@@ -2,9 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const mongoose=require('mongoose');
+const mongoose = require('mongoose');
+const { response } = require('express');
 const app = express();
-let original_url;
 
 // Basic Configuration
 const port = process.env.PORT || 3000;
@@ -15,22 +15,9 @@ app.use('/public', express.static(`${process.cwd()}/public`));
 
 app.use(bodyParser.urlencoded({extended:false}));
 
-app.use(process.env.MONGO_URI,{useNewUrlParser : true, useUnifiedTopology : true});
+mongoose.connect(process.env.MONGO_URI,{useNewUrlParser: true});
 
-app.get('/', function(req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
-});
-
-// Your first API endpoint
-app.get('/api/hello', function(req, res) {
-  res.json({ greeting: 'hello API' });
-});
-
-const logPath = (req,res,next) => {
-  console.log('request path :',req.path);
-  next();
-}
-
+// Schema
 const shortUrlSchema = new mongoose.Schema({
   originalUrl : String,
   shortUrl : Number,
@@ -40,37 +27,96 @@ const lastShortUrlSchema = new mongoose.Schema({
   shortUrl : Number,
 });
 
-const shortUrl = new mongoose.model('shortUrl',shortUrlSchema);
-const lastShortUrl = new mongoose.model('lastShortUrl',lastShortUrlSchema);
+const shortUrl = mongoose.model('shortUrl',shortUrlSchema);
+const lastShortUrl = mongoose.model('lastShortUrl',lastShortUrlSchema);
 
-//test insert
-const insert = async (req,res) => {
+// CRUD functions
+async function insertShortUrl(url){
   try{
-    const google = new shortUrl({originalUrl : 'https://www.google.com/', shortUrl : 1});
-    const lastUrl = new lastShortUrl({shortUrl : 1});
+    const docLastShortUrl = await lastShortUrl.findById(process.env.LAST_SHORT_URL_ID).exec();
+    const lastUrl = await shortUrl.findOne({shortUrl: docLastShortUrl.shortUrl}).exec();
+    const docUrl = new shortUrl({originalUrl:url, shortUrl:lastUrl.shortUrl+1});
+    const newUrl = await docUrl.save();
+    const updateLastShortUrl = await lastShortUrl.findByIdAndUpdate(
+        process.env.LAST_SHORT_URL_ID,
+        {shortUrl : newUrl.shortUrl},
+        {new: true}
+      );
+    return newUrl;
+  }catch(err){
+    console.error(`insertShortUrl Err : ${err}`)
   }
-  catch(err) {
+}
 
+async function checkUrlAlreadyShroten(url){
+  const docShortUrl = await shortUrl.findOne({originalUrl: url}).exec();
+  // console.log(`docShortUrl : ${docShortUrl}`);
+  return docShortUrl;
+}
+
+// checkUrlAlreadyShroten('https://www.google.com');
+
+async function findWithShort_url(short_url){
+  try{
+    const foundUrl = await shortUrl.findOne({shortUrl: short_url}).exec();
+    // console.log(`foundUrl : ${foundUrl}`);
+    return foundUrl;
+  }catch(err){
+    console.err(`findWithShort_url Err : ${err}`);
   }
-};
-app.post('/api/insert',logPath,(req,res) => {
-  
+}
+
+
+// Your first API endpoint
+app.get('/', function(req, res) {
+  res.sendFile(process.cwd() + '/views/index.html');
 });
 
-app.post('/api/shorturl',logPath,(req,res) => {
-  const fullUrl = req.body.url;
-  const url = validURL(fullUrl) ? {original_url : fullUrl, short_url : 1} :
-                                  {error : 'invalid url'};
-  
-  urlHolder = url.hasOwnProperty('errot') ? '' : url;
-  res.json(url);
+app.get('/api/hello', function(req, res) {
+  res.json({ greeting: 'hello API' });
 });
 
-app.get('/api/shorturl/:short_url',logPath,(req,res) => {
-  if(req.params.short_url == urlHolder.short_url){
-    res.redirect(urlHolder.original_url);
-  }else{
-    res.json({});
+const logPath = (req,res,next) => {
+  console.log('request path :',req.path);
+  next();
+}
+
+app.post('/api/shorturl',logPath,async (req,res) => {
+  try{
+    const fullUrl = req.body.url;
+    let url;
+
+    if(validURL(fullUrl)){
+      const alreadyExistedUrl = await checkUrlAlreadyShroten(fullUrl);
+      const returnedUrl = alreadyExistedUrl == null ? await insertShortUrl(fullUrl) : alreadyExistedUrl;
+      url = {original_url:returnedUrl.originalUrl, short_url:returnedUrl.shortUrl};
+    }else{
+      url = {error : 'invalid url'};
+    }
+    res.json(url);
+  }catch(err){
+    console.error(`Path /api/shorturl Err : ${err}`);
+  }
+}); 
+
+app.get('/api/shorturl/:short_url',logPath,async (req,res) => {
+  try{
+    const short_url = req.params.short_url;
+    
+    if(isNaN(short_url)){
+      response.json({error:'Wrong format'});
+      return;
+    }
+
+    const docShortUrl = await findWithShort_url(short_url);
+    console.log(`docShortUrl : ${docShortUrl}`);
+    if(docShortUrl == null){
+      res.json({error : 'No short URL found for the given input'});
+    }else{
+      res.redirect(docShortUrl.originalUrl);
+    }
+  }catch(err){
+    console.error(`Path /api/shorturl/:short_url Err : ${err}`);
   }
 }); 
 
